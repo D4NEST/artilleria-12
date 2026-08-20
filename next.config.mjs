@@ -1,7 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Se desactiva el "ignoreBuildErrors": esconder los errores de tipos fue
+  // parte de por qué el proyecto compilaba pero no funcionaba. `pnpm build`
+  // vuelve a ser una red de seguridad real.
   typescript: {
-    ignoreBuildErrors: true,
+    ignoreBuildErrors: false,
   },
   images: {
     unoptimized: true,

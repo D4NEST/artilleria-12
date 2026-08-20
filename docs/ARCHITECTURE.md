@@ -324,3 +324,34 @@ interface Target {
 ---
 
 **Regla de Oro**: El motor nunca debe importar React, Three.js, o cualquier dependencia del navegador. La vista nunca debe modificar el estado directamente, solo emitir comandos.
+
+---
+
+## Anexo — cambios de agosto de 2026
+
+Tres piezas nuevas en `components/game-engine/`, todas dentro de la capa de
+dominio y sin dependencias de React ni de Three.js:
+
+| Módulo | Papel |
+|---|---|
+| `rng.ts` | Generador congruencial sembrado. Sustituye a `Math.random()` dentro del motor: hace la partida reproducible y elimina el desajuste de hidratación entre servidor y cliente. |
+| `enemy-ai.ts` | La IA enemiga, extraída de `engine.ts`. Funciones puras + `EnemyAiProfile` (dificultad como dato, no como código). El motor pide un `EnemyShotPlan` y lo materializa; no sabe cómo se ha decidido. |
+| `audio-manager.ts` | Interfaz de audio. `resolveAudioEvents(prev, next)` traduce dos snapshots en eventos de sonido; el reproductor es intercambiable. Nadie lo importa desde `engine.ts`: el motor sigue sin saber que hay sonido. |
+
+`GameEngine` acepta ahora `{ seed, enemyProfile }` y expone `reseed()`,
+`getSeed()` y `planEnemyShot()`.
+
+### Línea de mira frente a eje del cañón
+
+Es la separación conceptual que faltaba en la Vista. `SIGHT` y
+`SIGHT_ELEVATION` (en `engine.ts`) definen desde dónde y hacia dónde mira el
+periscopio, con independencia de la elevación del tubo. El telémetro mide por
+la línea de mira; el dial de elevación es dirección de tiro. Antes ambas cosas
+compartían eje y el visor apuntaba al cielo.
+
+### Tests
+
+La suite (`tests/`, Vitest, entorno `node`) ejerce solo la capa de dominio y
+el controlador. Que se puedan jugar partidas enteras desde un test —empujando
+`update(dt)` a mano, sin navegador— es la comprobación práctica de que la
+separación de capas descrita arriba se sostiene.

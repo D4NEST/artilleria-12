@@ -166,8 +166,22 @@ Optimizaciones implementadas:
 
 ## Testing
 
-Actualmente sin tests implementados. Ver plan de desarrollo para roadmap de testing.
+Suite de Vitest en `tests/` — 110 tests sobre física, terreno, munición, IA y
+máquina de turnos. Ver la sección **Tests** al final de este documento.
 
 ---
 
 **Nota:** Este proyecto sigue una arquitectura hexagonal estricta. Cualquier modificación debe respetar la separación entre capas (Modelo, Controlador, Vista).
+
+## Tests
+
+```bash
+pnpm test            # 110 tests (Vitest)
+pnpm test:watch
+pnpm test:coverage
+pnpm typecheck
+pnpm check           # typecheck + tests + build
+```
+
+La suite cubre física, terreno, munición, IA enemiga y la máquina de turnos.
+Corre en Node, sin navegador: el motor es TypeScript puro por diseño.

@@ -48,9 +48,12 @@ export function SceneRoot() {
       <GameLoop />
       <PlayerCamera viewMode={viewMode} />
 
-      {/* Iluminación de la cabina: barata y de aspecto "consola militar". */}
-      <ambientLight intensity={0.55} color="#8fa3b8" />
-      <directionalLight position={[2, 4, 3]} intensity={0.5} color="#ffe6bd" />
+      {/* Iluminación de la cabina: barata y de aspecto "consola militar".
+          Subida respecto de la versión anterior: con 0.55 de ambiente los
+          materiales Lambert oscuros del cuarto quedaban casi en negro y no se
+          distinguía ni la consola ni los instrumentos. */}
+      <ambientLight intensity={1.5} color="#8fa3b8" />
+      <directionalLight position={[2, 4, 3]} intensity={1.1} color="#ffe6bd" />
 
       <WarRoom />
 

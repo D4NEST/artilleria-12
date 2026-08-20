@@ -14,7 +14,7 @@
  * ============================================================================
  */
 
-import { createContext, useContext, useMemo, useState, useSyncExternalStore } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { GameEngine } from './engine'
 import type { GameState } from './types'
 
@@ -33,6 +33,14 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   // Una sola instancia por montaje. El motor sobrevive a los re-renders.
   const engine = useMemo(() => new GameEngine(), [])
   const [viewMode, setViewMode] = useState<ViewMode>('room')
+
+  // El motor nace con una semilla FIJA para que el HTML del servidor y el
+  // primer render del cliente sean byte a byte iguales (si no, el viento
+  // aleatorio provoca el clásico "Hydration failed"). Ya montados en el
+  // navegador, se resiembra: cada partida real es distinta.
+  useEffect(() => {
+    engine.reseed(Date.now())
+  }, [engine])
 
   const value = useMemo(() => ({ engine, viewMode, setViewMode }), [engine, viewMode])
   return <GameContext.Provider value={value}>{children}</GameContext.Provider>
