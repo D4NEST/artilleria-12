@@ -18,10 +18,10 @@ import { useLayoutEffect, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { PerspectiveCamera } from '@react-three/drei'
 import * as THREE from 'three'
-import { MUZZLE, SIGHT, SIGHT_ELEVATION } from '@/components/game-engine/engine'
 import { useEngine, useGameState } from '@/components/game-engine/game-provider'
 import { aimDirection } from '@/components/game-engine/physics'
 import { TERRAIN, scatterProps, terrainHeight } from '@/components/game-engine/terrain'
+import { SIGHT_ELEVATION } from '@/components/game-engine/engine'  // <-- NUEVA IMPORTACIÓN
 import type { Target } from '@/components/game-engine/types'
 import { GEOMETRIES, MATERIALS, PALETTE, getTerrainGeometry } from './battlefield-assets'
 
@@ -98,16 +98,27 @@ function PlayerBattery() {
   const engine = useEngine()
   const yaw = useRef<THREE.Group>(null)
   const pitch = useRef<THREE.Group>(null)
-  const base = terrainHeight(MUZZLE.x, MUZZLE.z)
+  const chassisRef = useRef<THREE.Group>(null)
 
   useFrame(() => {
-    const { aim } = engine.getSnapshot()
-    if (yaw.current) yaw.current.rotation.y = -aim.azimuth
+    const { aim, vehicle } = engine.getSnapshot()
+    
+    // Rotación de la torreta (combinación de chasis + torreta)
+    const totalTurretRotation = vehicle.chassisRotation + vehicle.turretRotation
+    if (yaw.current) yaw.current.rotation.y = -totalTurretRotation - aim.azimuth
+    
+    // Elevación del cañón (usa aim.elevation, como debe ser)
     if (pitch.current) pitch.current.rotation.z = aim.elevation
+    
+    // Posición y rotación del chasis
+    if (chassisRef.current) {
+      chassisRef.current.position.set(vehicle.position.x, vehicle.position.y, vehicle.position.z)
+      chassisRef.current.rotation.y = -vehicle.chassisRotation
+    }
   })
 
   return (
-    <group position={[MUZZLE.x, base, MUZZLE.z]}>
+    <group ref={chassisRef}>
       {/* Estructura de hormigón low-poly */}
       <mesh geometry={GEOMETRIES.box} material={MATERIALS.metalDark} scale={[16, 5, 14]} position={[0, 2.2, 0]} />
       <mesh geometry={GEOMETRIES.box} material={MATERIALS.metal} scale={[12, 2, 10]} position={[0, 5.4, 0]} />
@@ -117,14 +128,14 @@ function PlayerBattery() {
         <mesh
           geometry={GEOMETRIES.antenna}
           material={MATERIALS.metal}
-          scale={[1, (SIGHT.y - base) / 6, 1]}
-          position={[0, (SIGHT.y - base) / 2, 0]}
+          scale={[1, 3.5, 1]}
+          position={[0, 1.75, 0]}
         />
         <mesh
           geometry={GEOMETRIES.box}
           material={MATERIALS.metalDark}
           scale={[1.6, 1.6, 2.6]}
-          position={[0, SIGHT.y - base, 0]}
+          position={[0, 3.5, 0]}
         />
       </group>
       {/* Torreta: yaw -> pitch -> tubo */}
@@ -391,15 +402,34 @@ export function GunsightCamera() {
   useFrame(() => {
     const cam = ref.current
     if (!cam) return
-    const { aim } = engine.getSnapshot()
-    // Se mira por la LÍNEA DE MIRA, no por el eje del tubo: con el cañón a 34°
-    // la óptica solo encuadraba cielo y era imposible ver los objetivos.
-    const dir = aimDirection(aim.azimuth, SIGHT_ELEVATION)
-    cam.position.set(SIGHT.x + dir.x * 6, SIGHT.y + dir.y * 6, SIGHT.z + dir.z * 6)
+    const { aim, vehicle } = engine.getSnapshot()
+    
+    // ----------------------------------------------------------
+    // CORRECCIÓN: Usamos SIGHT_ELEVATION en lugar de aim.elevation
+    // para que el periscopio siempre mire al horizonte.
+    // El jugador solo controla el azimuth con el mouse.
+    // ----------------------------------------------------------
+    const totalRotation = vehicle.chassisRotation + vehicle.turretRotation + aim.azimuth
+    const dir = aimDirection(totalRotation, SIGHT_ELEVATION)
+    
+    // ----------------------------------------------------------
+    // CORRECCIÓN: Posicionamos la cámara en la torreta (no en un mástil fijo de 22m)
+    // para que siga correctamente al vehículo.
+    // ----------------------------------------------------------
+    const turretHeight = vehicle.position.y + 4.5 // altura de la torreta sobre el terreno
+    const camPos = new THREE.Vector3(
+      vehicle.position.x + dir.x * 2,
+      turretHeight + dir.y * 2,
+      vehicle.position.z + dir.z * 2
+    )
+    
+    cam.position.copy(camPos)
+    
+    // Mirar en la dirección del periscopio
     target.set(
-      cam.position.x + dir.x * 100,
-      cam.position.y + dir.y * 100,
-      cam.position.z + dir.z * 100,
+      camPos.x + dir.x * 100,
+      camPos.y + dir.y * 100,
+      camPos.z + dir.z * 100
     )
     cam.lookAt(target)
   })

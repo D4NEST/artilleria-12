@@ -32,7 +32,7 @@ import {
   windVector,
 } from './physics'
 import { DEFAULT_SEED, type Rng, createRng } from './rng'
-import { PLAYER_BATTERY, terrainHeight } from './terrain'
+import { PLAYER_BATTERY, insideTerrain, terrainHeight } from './terrain'
 import type {
   Aim,
   AmmoId,
@@ -86,6 +86,13 @@ const CHARGE_RATE = 0.85 // potencia por segundo
 const MAX_TRAIL = 320
 const IMPACT_PAUSE = 1.5
 const ENEMY_DELAY = 0.9
+
+/** Velocidad de movimiento del vehículo en metros por segundo. */
+const VEHICLE_SPEED = 12
+/** Velocidad de rotación del chasis en radianes por segundo. */
+const CHASSIS_ROTATION_SPEED = 1.2
+/** Velocidad de rotación de la torreta en radianes por segundo. */
+const TURRET_ROTATION_SPEED = 1.5
 
 function createTargets(): Target[] {
   const defs: Array<{ id: string; x: number; z: number; kind: Target['kind']; hp: number }> = [
@@ -186,6 +193,12 @@ export class GameEngine {
       lastShot: null,
       message: 'Batería lista. Use el periscopio para apuntar.',
       victory: false,
+      vehicle: {
+        position: { x: PLAYER_BATTERY.x, y: 0, z: PLAYER_BATTERY.z },
+        chassisRotation: 0,
+        turretRotation: 0,
+        canMove: true,
+      },
     }
   }
 
@@ -253,18 +266,105 @@ export class GameEngine {
     this.fire()
   }
 
+  // ------------------------------------------------------------- movimiento
+  /** Mueve el vehículo hacia adelante (dirección del chasis). */
+  moveForward(distance: number) {
+    if (this.state.phase !== 'aiming' || !this.state.vehicle.canMove) return
+    const { chassisRotation, position } = this.state.vehicle
+    const newX = position.x + Math.cos(chassisRotation) * distance
+    const newZ = position.z + Math.sin(chassisRotation) * distance
+    
+    // Validar límites del terreno
+    if (!insideTerrain(newX, newZ)) return
+    
+    const newY = terrainHeight(newX, newZ)
+    this.commit({
+      vehicle: {
+        ...this.state.vehicle,
+        position: { x: newX, y: newY, z: newZ },
+      },
+    }, false)
+  }
+
+  /** Mueve el vehículo hacia atrás. */
+  moveBackward(distance: number) {
+    if (this.state.phase !== 'aiming' || !this.state.vehicle.canMove) return
+    const { chassisRotation, position } = this.state.vehicle
+    const newX = position.x - Math.cos(chassisRotation) * distance
+    const newZ = position.z - Math.sin(chassisRotation) * distance
+    
+    // Validar límites del terreno
+    if (!insideTerrain(newX, newZ)) return
+    
+    const newY = terrainHeight(newX, newZ)
+    this.commit({
+      vehicle: {
+        ...this.state.vehicle,
+        position: { x: newX, y: newY, z: newZ },
+      },
+    }, false)
+  }
+
+  /** Rota el chasis a la izquierda (sentido antihorario). */
+  rotateChassisLeft(angle: number) {
+    if (this.state.phase !== 'aiming' || !this.state.vehicle.canMove) return
+    this.commit({
+      vehicle: {
+        ...this.state.vehicle,
+        chassisRotation: this.state.vehicle.chassisRotation + angle,
+      },
+    }, false)
+  }
+
+  /** Rota el chasis a la derecha (sentido horario). */
+  rotateChassisRight(angle: number) {
+    if (this.state.phase !== 'aiming' || !this.state.vehicle.canMove) return
+    this.commit({
+      vehicle: {
+        ...this.state.vehicle,
+        chassisRotation: this.state.vehicle.chassisRotation - angle,
+      },
+    }, false)
+  }
+
+  /** Rota la torreta a la izquierda (independiente del chasis). */
+  rotateTurretLeft(angle: number) {
+    if (this.state.phase !== 'aiming') return
+    this.commit({
+      vehicle: {
+        ...this.state.vehicle,
+        turretRotation: this.state.vehicle.turretRotation + angle,
+      },
+    }, false)
+  }
+
+  /** Rota la torreta a la derecha (independiente del chasis). */
+  rotateTurretRight(angle: number) {
+    if (this.state.phase !== 'aiming') return
+    this.commit({
+      vehicle: {
+        ...this.state.vehicle,
+        turretRotation: this.state.vehicle.turretRotation - angle,
+      },
+    }, false)
+  }
+
   fire() {
     if (this.state.phase !== 'aiming') return
     const ammo = AMMO[this.state.ammoId]
     const { azimuth, elevation } = this.state.aim
     const dir = aimDirection(azimuth, elevation)
+    
+    // El proyectil sale desde la posición actual del vehículo
+    const vehiclePos = this.state.vehicle.position
+    const muzzleY = vehiclePos.y + 4.5
 
     this.trail.length = 0
     this.projectiles.length = 0
     this.projectiles.push({
       id: this.nextId++,
       // Sale ligeramente adelantado a la boca para no colisionar con el búnker.
-      position: { x: MUZZLE.x + dir.x * 3, y: MUZZLE.y + dir.y * 3, z: MUZZLE.z + dir.z * 3 },
+      position: { x: vehiclePos.x + dir.x * 3, y: muzzleY + dir.y * 3, z: vehiclePos.z + dir.z * 3 },
       velocity: launchVelocity(azimuth, elevation, this.state.power, ammo),
       ammo,
       hostile: false,
@@ -272,10 +372,15 @@ export class GameEngine {
       age: 0,
     })
 
+    // Al disparar, se desactiva el movimiento hasta el siguiente turno
     this.commit({
       phase: 'flying',
       shotsFired: this.state.shotsFired + 1,
       message: 'Proyectil en vuelo…',
+      vehicle: {
+        ...this.state.vehicle,
+        canMove: false,
+      },
     })
   }
 
@@ -375,8 +480,13 @@ export class GameEngine {
     })
 
     if (p.hostile) {
-      // Daño al búnker del jugador.
-      const d = Math.hypot(impact.x - MUZZLE.x, impact.z - MUZZLE.z)
+      // ==============================================================
+      // CORRECCIÓN: Calcular la distancia desde la posición actual del vehículo
+      // en lugar de MUZZLE (posición fija).
+      // ==============================================================
+      const vehiclePos = this.state.vehicle.position
+      const d = Math.hypot(impact.x - vehiclePos.x, impact.z - vehiclePos.z)
+      
       let hp = this.state.playerHp
       if (d < p.ammo.blastRadius) {
         hp = Math.max(0, hp - Math.round(p.ammo.damage * (1 - d / p.ammo.blastRadius)))
@@ -386,7 +496,7 @@ export class GameEngine {
         message:
           d < p.ammo.blastRadius
             ? `¡Impacto enemigo a ${d.toFixed(0)} m! Integridad ${hp}%`
-            : `Fallo enemigo a ${d.toFixed(0)} m del búnker.`,
+            : `Fallo enemigo a ${d.toFixed(0)} m del vehículo.`,
       })
       this.phaseTimer = IMPACT_PAUSE
       this.hostileResolved = true
@@ -505,9 +615,21 @@ export class GameEngine {
 
   /** Expuesto para tests y para futuros modos (previsualizar el tiro enemigo). */
   planEnemyShot(): EnemyShotPlan | null {
+    // ==============================================================
+    // CORRECCIÓN: Pasar la posición actual del vehículo para que la IA
+    // apunte correctamente al jugador en movimiento.
+    // ==============================================================
+    const playerPos = this.state.vehicle.position
+    // Ajustar la altura de la posición del jugador al nivel de la torreta
+    const adjustedPlayerPos: Vec3 = {
+      x: playerPos.x,
+      y: playerPos.y + 4.5,
+      z: playerPos.z,
+    }
+    
     return planEnemyShot({
       targets: this.state.targets,
-      playerPosition: MUZZLE,
+      playerPosition: adjustedPlayerPos,
       turn: this.state.turn,
       wind: windVector(this.state.wind),
       rng: this.rng,
@@ -524,6 +646,10 @@ export class GameEngine {
       power: 0.55,
       charging: false,
       message: 'Su turno. El viento ha cambiado.',
+      vehicle: {
+        ...this.state.vehicle,
+        canMove: true,
+      },
     })
   }
 }
