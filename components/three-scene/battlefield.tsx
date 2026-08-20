@@ -18,7 +18,7 @@ import { useLayoutEffect, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { PerspectiveCamera } from '@react-three/drei'
 import * as THREE from 'three'
-import { MUZZLE } from '@/components/game-engine/engine'
+import { MUZZLE, SIGHT, SIGHT_ELEVATION } from '@/components/game-engine/engine'
 import { useEngine, useGameState } from '@/components/game-engine/game-provider'
 import { aimDirection } from '@/components/game-engine/physics'
 import { TERRAIN, scatterProps, terrainHeight } from '@/components/game-engine/terrain'
@@ -111,6 +111,22 @@ function PlayerBattery() {
       {/* Estructura de hormigón low-poly */}
       <mesh geometry={GEOMETRIES.box} material={MATERIALS.metalDark} scale={[16, 5, 14]} position={[0, 2.2, 0]} />
       <mesh geometry={GEOMETRIES.box} material={MATERIALS.metal} scale={[12, 2, 10]} position={[0, 5.4, 0]} />
+      {/* Mástil del periscopio: la óptica desde la que mira el jugador.
+          Se dibuja para que la vista táctica no muestre una cámara flotante. */}
+      <group position={[0, 0, 0]}>
+        <mesh
+          geometry={GEOMETRIES.antenna}
+          material={MATERIALS.metal}
+          scale={[1, (SIGHT.y - base) / 6, 1]}
+          position={[0, (SIGHT.y - base) / 2, 0]}
+        />
+        <mesh
+          geometry={GEOMETRIES.box}
+          material={MATERIALS.metalDark}
+          scale={[1.6, 1.6, 2.6]}
+          position={[0, SIGHT.y - base, 0]}
+        />
+      </group>
       {/* Torreta: yaw -> pitch -> tubo */}
       <group ref={yaw} position={[0, 4.5, 0]}>
         <mesh geometry={GEOMETRIES.box} material={MATERIALS.metal} scale={[5, 2.6, 5]} />
@@ -366,7 +382,7 @@ export function TacticalCamera() {
   return <PerspectiveCamera ref={ref} makeDefault fov={44} near={1} far={900} />
 }
 
-/** Cámara del periscopio: primera persona sobre la boca del cañón. */
+/** Cámara del periscopio: la señal que sube por el mástil de observación. */
 export function GunsightCamera() {
   const engine = useEngine()
   const ref = useRef<THREE.PerspectiveCamera>(null)
@@ -376,8 +392,10 @@ export function GunsightCamera() {
     const cam = ref.current
     if (!cam) return
     const { aim } = engine.getSnapshot()
-    const dir = aimDirection(aim.azimuth, aim.elevation)
-    cam.position.set(MUZZLE.x + dir.x * 6, MUZZLE.y + dir.y * 6 + 1.2, MUZZLE.z + dir.z * 6)
+    // Se mira por la LÍNEA DE MIRA, no por el eje del tubo: con el cañón a 34°
+    // la óptica solo encuadraba cielo y era imposible ver los objetivos.
+    const dir = aimDirection(aim.azimuth, SIGHT_ELEVATION)
+    cam.position.set(SIGHT.x + dir.x * 6, SIGHT.y + dir.y * 6, SIGHT.z + dir.z * 6)
     target.set(
       cam.position.x + dir.x * 100,
       cam.position.y + dir.y * 100,
@@ -386,7 +404,9 @@ export function GunsightCamera() {
     cam.lookAt(target)
   })
 
-  return <PerspectiveCamera ref={ref} makeDefault fov={26} near={0.5} far={TERRAIN.width * 3} />
+  // FOV algo más abierto que el original: con 26° los árboles cercanos
+  // comían el encuadre y no se veía el sector de objetivos.
+  return <PerspectiveCamera ref={ref} makeDefault fov={34} near={0.5} far={TERRAIN.width * 3} />
 }
 
 /* ------------------------------------------------------------------- escena */

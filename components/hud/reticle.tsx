@@ -13,8 +13,9 @@
 import { useGameState } from '@/components/game-engine/game-provider'
 
 export function Reticle({ visible }: { visible: boolean }) {
-  const { rangefinder, phase } = useGameState()
+  const { rangefinder, phase, aim } = useGameState()
   const locked = phase !== 'aiming'
+  const elevationDeg = ((aim.elevation * 180) / Math.PI).toFixed(1)
 
   return (
     <div
@@ -63,9 +64,12 @@ export function Reticle({ visible }: { visible: boolean }) {
           <div key={cls} className={`absolute size-5 border-primary/70 ${cls}`} />
         ))}
 
-        {/* Lectura del telémetro, anclada bajo el retículo */}
-        <div className="absolute -bottom-9 left-1/2 -translate-x-1/2 font-mono text-xs tracking-[0.2em] text-accent">
+        {/* Lectura del telémetro, anclada bajo el retículo. La elevación va
+            aquí porque la óptica está acoplada al horizonte: el tubo apunta
+            más alto que la línea de mira y el artillero necesita el dato. */}
+        <div className="absolute -bottom-9 left-1/2 -translate-x-1/2 whitespace-nowrap font-mono text-xs tracking-[0.2em] text-accent">
           {rangefinder > 0 ? `${rangefinder.toFixed(0)} M` : 'SIN ECO'}
+          <span className="ml-3 text-primary">ELV {elevationDeg}°</span>
         </div>
       </div>
     </div>

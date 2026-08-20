@@ -6,8 +6,8 @@
 
 @theme inline {
   /* Dos familias y nada más: estarcido condensado + mono de instrumento. */
-  --font-sans: 'Oswald', 'Oswald Fallback', ui-sans-serif, sans-serif;
-  --font-mono: 'Geist Mono', 'Geist Mono Fallback', ui-monospace, monospace;
+  --font-sans: var(--font-display), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-instrument), ui-monospace, SFMono-Regular, monospace;
 
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);

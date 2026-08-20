@@ -1,12 +1,7 @@
 import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
-import { Oswald, Geist_Mono } from 'next/font/google'
+import { display, mono } from './fonts'
 import './globals.css'
-
-// Oswald: rotulación condensada de estarcido militar para los titulares.
-const _display = Oswald({ subsets: ['latin'], weight: ['400', '600'] })
-// Geist Mono: cifras tabulares para toda lectura de instrumento.
-const _mono = Geist_Mono({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
   title: 'Batería 12 — Artillería por turnos',
@@ -45,10 +40,15 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="es" className="bg-background">
-      <body className="overflow-hidden antialiased">
+    // Las variables de fuente DEBEN colgar del <html>: sin esta clase las
+    // familias declaradas en globals.css se quedan sin resolver y todo cae al
+    // fallback del sistema (era el bug de "no se ve la GeistMono").
+    <html lang="es" className={`${display.variable} ${mono.variable} bg-background`}>
+      <body className="overflow-hidden font-mono antialiased">
         {children}
-        {process.env.NODE_ENV === 'production' && <Analytics />}
+        {/* Solo en despliegues de Vercel: en un `next start` local el script
+            no existe y ensucia la consola con un 404 en cada carga. */}
+        {Boolean(process.env.NEXT_PUBLIC_VERCEL_ENV) && <Analytics />}
       </body>
     </html>
   )

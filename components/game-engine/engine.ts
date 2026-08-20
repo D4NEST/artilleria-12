@@ -18,14 +18,20 @@
 
 import { AMMO } from './ammunition'
 import {
+  DEFAULT_ENEMY_PROFILE,
+  type EnemyAiProfile,
+  type EnemyShotPlan,
+  planEnemyShot,
+} from './enemy-ai'
+import {
   FIXED_DT,
   aimDirection,
   laserRange,
   launchVelocity,
-  solveSpeedForRange,
   stepProjectile,
   windVector,
 } from './physics'
+import { DEFAULT_SEED, type Rng, createRng } from './rng'
 import { PLAYER_BATTERY, terrainHeight } from './terrain'
 import type {
   Aim,
@@ -44,6 +50,31 @@ export const MUZZLE: Vec3 = {
   y: terrainHeight(PLAYER_BATTERY.x, PLAYER_BATTERY.z) + 4.5,
   z: PLAYER_BATTERY.z,
 }
+
+/**
+ * Cabeza del periscopio: un mástil de observación sobre el búnker.
+ *
+ * No coincide con la boca del cañón. Desde la altura del tubo (6,5 m) la loma
+ * que hay a ~160 m tapa por completo el Sector 7: no se veía ni un objetivo.
+ * A 24 m los tres objetivos quedan en línea de visión franca, que es
+ * justamente para lo que existe un periscopio.
+ */
+export const SIGHT: Vec3 = {
+  x: PLAYER_BATTERY.x,
+  y: terrainHeight(PLAYER_BATTERY.x, PLAYER_BATTERY.z) + 22,
+  z: PLAYER_BATTERY.z,
+}
+
+/**
+ * Elevación de la LÍNEA DE MIRA, en radianes (una ligera depresión).
+ *
+ * No es la elevación del tubo. Antes, periscopio y telémetro apuntaban por el
+ * eje del cañón: a 34° de elevación —el valor inicial— el jugador solo veía
+ * cielo y el telémetro devolvía 0, "SIN ECO", siempre. Como en la artillería
+ * real, el visor va desacoplado del tubo y la elevación es un dato de
+ * dirección de tiro que se lee en el dial, no algo que mueva la óptica.
+ */
+export const SIGHT_ELEVATION = -0.08
 
 const AIM_LIMITS = {
   azimuth: 0.75, // ±43° de recorrido lateral
@@ -73,18 +104,32 @@ function createTargets(): Target[] {
   }))
 }
 
-function randomWind() {
+/**
+ * Viento del turno. Recibe el generador por parámetro: sin `Math.random()`
+ * suelto, el motor es determinista y no rompe la hidratación de React.
+ */
+function rollWind(rng: Rng) {
   return {
-    speed: 2 + Math.random() * 12,
+    speed: 2 + rng() * 12,
     // Rumbo dominante lateral (±Z) con algo de componente frontal.
-    direction: (Math.random() < 0.5 ? 1 : -1) * (Math.PI / 2) + (Math.random() - 0.5) * 1.4,
+    direction: (rng() < 0.5 ? 1 : -1) * (Math.PI / 2) + (rng() - 0.5) * 1.4,
   }
+}
+
+export interface GameEngineOptions {
+  /** Semilla del generador. Fija por defecto: servidor y cliente coinciden. */
+  seed?: number
+  /** Perfil de la IA enemiga. Permite inyectar dificultad desde fuera. */
+  enemyProfile?: EnemyAiProfile
 }
 
 export class GameEngine {
   // ---------------------------------------------------------------- estado
   private state: GameState
   private listeners = new Set<() => void>()
+  private seed: number
+  private rng: Rng
+  private enemyProfile: EnemyAiProfile
   /** Acumulador para volcar cambios continuos al snapshot a ~20 Hz. */
   private dirty = false
   private flushTimer = 0
@@ -99,8 +144,27 @@ export class GameEngine {
   /** Estela del último proyectil (puntos en world space). */
   readonly trail: Vec3[] = []
 
-  constructor() {
+  constructor(options: GameEngineOptions = {}) {
+    this.seed = options.seed ?? DEFAULT_SEED
+    this.rng = createRng(this.seed)
+    this.enemyProfile = options.enemyProfile ?? DEFAULT_ENEMY_PROFILE
     this.state = this.initialState()
+  }
+
+  /**
+   * Cambia la semilla y reinicia la partida. La Vista lo llama UNA vez tras
+   * montar en el navegador (`useEffect`), de modo que el HTML del servidor y
+   * el del primer render del cliente son idénticos —no hay mismatch— y aun
+   * así cada partida real es distinta.
+   */
+  reseed(seed: number) {
+    this.seed = seed
+    this.reset()
+  }
+
+  /** Semilla en uso. Útil para reproducir una partida concreta o un bug. */
+  getSeed(): number {
+    return this.seed
   }
 
   private initialState(): GameState {
@@ -108,7 +172,7 @@ export class GameEngine {
     return {
       phase: 'aiming',
       turn: 1,
-      wind: randomWind(),
+      wind: rollWind(this.rng),
       aim,
       power: 0.55,
       charging: false,
@@ -118,7 +182,7 @@ export class GameEngine {
       playerMaxHp: 100,
       shotsFired: 0,
       hits: 0,
-      rangefinder: laserRange(MUZZLE, aim.azimuth, aim.elevation),
+      rangefinder: laserRange(SIGHT, aim.azimuth, SIGHT_ELEVATION),
       lastShot: null,
       message: 'Batería lista. Use el periscopio para apuntar.',
       victory: false,
@@ -156,7 +220,7 @@ export class GameEngine {
       AIM_LIMITS.elevationMax,
     )
     this.commit(
-      { aim: { azimuth, elevation }, rangefinder: laserRange(MUZZLE, azimuth, elevation) },
+      { aim: { azimuth, elevation }, rangefinder: laserRange(SIGHT, azimuth, SIGHT_ELEVATION) },
       false,
     )
   }
@@ -220,8 +284,12 @@ export class GameEngine {
     this.effects.length = 0
     this.trail.length = 0
     this.phaseTimer = 0
+    this.accumulator = 0
+    this.flushTimer = 0
     this.hostileResolved = false
     this.enemyFired = false
+    // Se rebobina el generador: una misma semilla reproduce la misma partida.
+    this.rng = createRng(this.seed)
     this.state = this.initialState()
     this.emit()
   }
@@ -405,33 +473,29 @@ export class GameEngine {
   private hostileResolved = false
   private enemyFired = false
 
-  /** IA sencilla: la batería enemiga viva más cercana dispara con error. */
+  /**
+   * Turno enemigo. Toda la decisión vive en `enemy-ai.ts`: aquí solo se
+   * materializa el plan como proyectil. Cambiar la IA no toca el motor.
+   */
   private enemyFire() {
-    const shooter = this.state.targets.find((t) => t.alive)
-    if (!shooter) return
-
-    const origin: Vec3 = {
-      x: shooter.position.x,
-      y: shooter.position.y + 4,
-      z: shooter.position.z,
+    const plan = this.planEnemyShot()
+    if (!plan) {
+      // Sin baterías vivas no hay respuesta: devolver el control o el turno
+      // enemigo se quedaría colgado para siempre.
+      this.beginPlayerTurn()
+      return
     }
-    // Apunta al búnker del jugador con dispersión decreciente por turno.
-    const spread = Math.max(4, 26 - this.state.turn * 3)
-    const aimX = MUZZLE.x + (Math.random() - 0.5) * spread
-    const aimZ = MUZZLE.z + (Math.random() - 0.5) * spread
-    const dx = aimX - origin.x
-    const dz = aimZ - origin.z
-    const horizontal = Math.hypot(dx, dz)
-    const elevation = 0.62
-    const speed = solveSpeedForRange(horizontal, terrainHeight(aimX, aimZ) - origin.y, elevation)
-    const azimuth = Math.atan2(dz, dx)
-    const dir = aimDirection(azimuth, elevation)
 
+    const dir = aimDirection(plan.azimuth, plan.elevation)
     this.projectiles.push({
       id: this.nextId++,
-      position: { x: origin.x + dir.x * 2, y: origin.y + dir.y * 2, z: origin.z + dir.z * 2 },
-      velocity: { x: dir.x * speed, y: dir.y * speed, z: dir.z * speed },
-      ammo: AMMO.he,
+      position: {
+        x: plan.origin.x + dir.x * 2,
+        y: plan.origin.y + dir.y * 2,
+        z: plan.origin.z + dir.z * 2,
+      },
+      velocity: { ...plan.velocity },
+      ammo: plan.ammo,
       hostile: true,
       alive: true,
       age: 0,
@@ -439,11 +503,24 @@ export class GameEngine {
     this.commit({ message: 'Fuego entrante. ¡Cúbrase!' })
   }
 
+  /** Expuesto para tests y para futuros modos (previsualizar el tiro enemigo). */
+  planEnemyShot(): EnemyShotPlan | null {
+    return planEnemyShot({
+      targets: this.state.targets,
+      playerPosition: MUZZLE,
+      turn: this.state.turn,
+      wind: windVector(this.state.wind),
+      rng: this.rng,
+      profile: this.enemyProfile,
+      dt: FIXED_DT * 4, // paso grueso: solo es una estimación de puntería
+    })
+  }
+
   private beginPlayerTurn() {
     this.commit({
       phase: 'aiming',
       turn: this.state.turn + 1,
-      wind: randomWind(),
+      wind: rollWind(this.rng),
       power: 0.55,
       charging: false,
       message: 'Su turno. El viento ha cambiado.',

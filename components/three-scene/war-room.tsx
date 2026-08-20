@@ -12,16 +12,23 @@
  * ============================================================================
  */
 
-import { useRef } from 'react'
+import { Suspense, useRef } from 'react'
 import { RenderTexture, Text } from '@react-three/drei'
 import { useFrame } from '@react-three/fiber'
 import type * as THREE from 'three'
+import { MONO_TTF } from '@/lib/fonts'
 import { AMMO_LIST } from '@/components/game-engine/ammunition'
 import { useEngine, useGameState, useViewMode } from '@/components/game-engine/game-provider'
 import { Battlefield } from './battlefield'
 import { PALETTE } from './battlefield-assets'
 
-const FONT = '/fonts/GeistMono-Regular.ttf'
+/**
+ * Troika (el motor de texto de <Text>) descarga este fichero por HTTP. Antes
+ * apuntaba a un .ttf que NO existía en `public/`: la promesa quedaba rechazada
+ * dentro de Suspense y tumbaba el árbol entero del Canvas —de ahí la pantalla
+ * negra—. Ahora la fuente se sirve desde `public/fonts/` (ver `app/fonts.ts`).
+ */
+const FONT = MONO_TTF
 
 /* ------------------------------------------------------------------ etiquetas */
 
@@ -38,19 +45,24 @@ function Label({
   color?: string
   rotation?: [number, number, number]
 }) {
+  // <Text> suspende mientras troika descarga la tipografía. Aislar cada
+  // etiqueta en su propio Suspense evita que un fallo de fuente deje el
+  // cuarto de guerra entero sin renderizar: como mucho falta un rótulo.
   return (
-    <Text
-      font={FONT}
-      position={position}
-      rotation={rotation}
-      fontSize={size}
-      color={color}
-      anchorX="center"
-      anchorY="middle"
-      letterSpacing={0.08}
-    >
-      {text}
-    </Text>
+    <Suspense fallback={null}>
+      <Text
+        font={FONT}
+        position={position}
+        rotation={rotation}
+        fontSize={size}
+        color={color}
+        anchorX="center"
+        anchorY="middle"
+        letterSpacing={0.08}
+      >
+        {text}
+      </Text>
+    </Suspense>
   )
 }
 
@@ -147,8 +159,10 @@ function TacticalMonitor() {
 
   return (
     <group position={[0, 2.05, -3.42]}>
-      {/* Carcasa */}
-      <mesh position={[0, 0, -0.06]}>
+      {/* Carcasa. Su cara frontal DEBE quedar detrás del plano de la pantalla:
+          antes estaba en z=+0.01 y tapaba por completo la señal táctica (era
+          el "monitor negro"). Ahora el bisel termina en z=-0.05. */}
+      <mesh position={[0, 0, -0.12]}>
         <boxGeometry args={[3.9, 2.3, 0.14]} />
         <meshLambertMaterial color="#14161a" flatShading />
       </mesh>
@@ -161,15 +175,17 @@ function TacticalMonitor() {
       >
         <planeGeometry args={[3.6, 2]} />
         <meshBasicMaterial>
-          <RenderTexture attach="map" width={768} height={432} anisotropy={1}>
+          <RenderTexture attach="map" width={1024} height={576} anisotropy={1}>
             <Battlefield view="tactical" />
           </RenderTexture>
         </meshBasicMaterial>
       </mesh>
-      <Label text="SECTOR 7 — VISTA TÁCTICA" position={[0, 1.22, 0.02]} size={0.085} />
+      {/* Rótulos DENTRO del bisel: fuera de él quedaban sobre el techo (el de
+          arriba) y detrás de la consola (el de turno), es decir, invisibles. */}
+      <Label text="SECTOR 7 — VISTA TÁCTICA" position={[-0.55, 1.08, 0.02]} size={0.075} />
       <Label
         text={`TURNO ${String(state.turn).padStart(2, '0')}`}
-        position={[1.45, -1.16, 0.02]}
+        position={[1.45, 1.08, 0.02]}
         size={0.07}
         color={PALETTE.crt}
       />
@@ -214,7 +230,7 @@ function Periscope() {
       >
         <planeGeometry args={[1.6, 0.9]} />
         <meshBasicMaterial>
-          <RenderTexture attach="map" width={768} height={432} anisotropy={1}>
+          <RenderTexture attach="map" width={1280} height={720} anisotropy={1}>
             <Battlefield view="gunsight" />
           </RenderTexture>
         </meshBasicMaterial>
@@ -248,43 +264,57 @@ function Gauge({
   const needle = useRef<THREE.Group>(null)
   useFrame(() => {
     if (!needle.current) return
-    const target = -Math.PI * 0.75 + Math.PI * 1.5 * Math.min(1, Math.max(0, value))
+    // La aguja gira alrededor del EJE del dial (Y local), no sobre Z: con
+    // rotation.z el brazo —que cuelga en -Z— se quedaba clavado en su sitio y
+    // solo giraba sobre sí mismo, así que los tres diales parecían averiados.
+    const target = Math.PI * 0.75 - Math.PI * 1.5 * Math.min(1, Math.max(0, value))
     // Amortiguación: las agujas físicas no saltan, oscilan hacia el valor.
-    needle.current.rotation.z += (target - needle.current.rotation.z) * 0.18
+    needle.current.rotation.y += (target - needle.current.rotation.y) * 0.18
   })
 
+  // El rótulo va FUERA del grupo inclinado: heredando la rotación del dial
+  // acababa con la cara trasera hacia el jugador y el texto se leía en espejo.
   return (
-    <group position={position} rotation={[-Math.PI / 2 + 0.5, 0, 0]}>
-      <mesh>
-        <cylinderGeometry args={[0.19, 0.19, 0.05, 12]} />
-        <meshLambertMaterial color="#15171a" flatShading />
-      </mesh>
-      <mesh position={[0, 0.03, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <circleGeometry args={[0.16, 12]} />
-        <meshBasicMaterial color="#0e1013" />
-      </mesh>
-      {/* Marcas de escala */}
-      {Array.from({ length: 7 }).map((_, i) => {
-        const a = -Math.PI * 0.75 + (Math.PI * 1.5 * i) / 6
-        return (
-          <mesh
-            key={i}
-            position={[Math.sin(a) * 0.125, 0.035, -Math.cos(a) * 0.125]}
-            rotation={[-Math.PI / 2, 0, -a]}
-          >
-            <planeGeometry args={[0.012, 0.035]} />
-            <meshBasicMaterial color="#5c6068" />
-          </mesh>
-        )
-      })}
-      {/* Aguja */}
-      <group ref={needle} position={[0, 0.04, 0]} rotation={[0, 0, 0]}>
-        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, -0.055]}>
-          <planeGeometry args={[0.016, 0.12]} />
-          <meshBasicMaterial color={color} />
+    <group position={position}>
+      <Label
+        text={label}
+        position={[0, 0.02, 0.27]}
+        size={0.05}
+        rotation={[-Math.PI / 2 + 0.6, 0, 0]}
+      />
+      {/* +PI/2−0.5, no −PI/2+0.5: con el signo anterior la esfera del dial
+          miraba hacia la pared y el jugador solo veía el culo del cilindro. */}
+      <group rotation={[Math.PI / 2 - 0.5, 0, 0]}>
+        <mesh>
+          <cylinderGeometry args={[0.19, 0.19, 0.05, 12]} />
+          <meshLambertMaterial color="#2b3037" flatShading />
         </mesh>
+        <mesh position={[0, 0.03, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+          <circleGeometry args={[0.16, 12]} />
+          <meshBasicMaterial color="#12161b" />
+        </mesh>
+        {/* Marcas de escala */}
+        {Array.from({ length: 7 }).map((_, i) => {
+          const a = -Math.PI * 0.75 + (Math.PI * 1.5 * i) / 6
+          return (
+            <mesh
+              key={i}
+              position={[Math.sin(a) * 0.125, 0.035, -Math.cos(a) * 0.125]}
+              rotation={[-Math.PI / 2, 0, -a]}
+            >
+              <planeGeometry args={[0.012, 0.035]} />
+              <meshBasicMaterial color="#5c6068" />
+            </mesh>
+          )
+        })}
+        {/* Aguja */}
+        <group ref={needle} position={[0, 0.04, 0]} rotation={[0, 0, 0]}>
+          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, -0.055]}>
+            <planeGeometry args={[0.016, 0.12]} />
+            <meshBasicMaterial color={color} />
+          </mesh>
+        </group>
       </group>
-      <Label text={label} position={[0, 0.04, 0.26]} size={0.045} rotation={[-Math.PI / 2, 0, 0]} />
     </group>
   )
 }
@@ -337,7 +367,12 @@ function WindVane({ position }: { position: [number, number, number] }) {
           )
         })}
       </group>
-      <Label text="VIENTO" position={[0, 0.02, 0.16]} size={0.042} rotation={[-Math.PI / 2, 0, 0]} />
+      <Label
+        text="VIENTO"
+        position={[0, 0.02, 0.2]}
+        size={0.045}
+        rotation={[-Math.PI / 2 + 0.6, 0, 0]}
+      />
     </group>
   )
 }
@@ -376,9 +411,9 @@ function AmmoLevers({ position }: { position: [number, number, number] }) {
             <Label
               text={ammo.code}
               position={[0, 0.025, 0.22]}
-              size={0.036}
+              size={0.04}
               color={active ? PALETTE.amber : '#7a8088'}
-              rotation={[-Math.PI / 2, 0, 0]}
+              rotation={[-Math.PI / 2 + 0.6, 0, 0]}
             />
           </group>
         )
@@ -404,9 +439,9 @@ function StatusLamps({ position }: { position: [number, number, number] }) {
       })}
       <Label
         text="INTEGRIDAD"
-        position={[0.32, 0, 0.16]}
-        size={0.04}
-        rotation={[-Math.PI / 2, 0, 0]}
+        position={[0.32, 0.02, 0.2]}
+        size={0.045}
+        rotation={[-Math.PI / 2 + 0.6, 0, 0]}
       />
     </group>
   )

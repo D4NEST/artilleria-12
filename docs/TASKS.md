@@ -1,7 +1,17 @@
 # Lista de Tareas Inmediatas
 
-**Estado actual:** Alpha funcional v0.1.0  
+**Estado actual:** Alpha jugable v0.1.1  
 **Prioridad:** Estabilizar mediante tests antes de añadir features
+
+> **Actualización (20/08/2026).** Corregidos los fallos que impedían jugar
+> (renderizado 3D, hidratación y tipografía), montada la suite de Vitest
+> (110 tests), extraída la IA a `enemy-ai.ts` y preparada la interfaz de
+> audio en `audio-manager.ts`. Las casillas marcadas abajo reflejan ese
+> trabajo; ver `CHANGELOG.md` y `docs/FIX-REPORT.md` para el detalle.
+
+> Nota sobre rutas: los tests viven en `tests/` (una carpeta única en la raíz)
+> y no en un `__tests__/` por módulo. Es lo que espera Vitest por defecto y
+> evita mezclar código de producción con código de prueba.
 
 ---
 
@@ -10,43 +20,43 @@
 ### Testing (Sprint 1-2)
 
 #### Configuración de Testing
-- [ ] Instalar Vitest
+- [x] Instalar Vitest
   ```bash
   pnpm add -D vitest @vitest/ui
   ```
-- [ ] Configurar `vitest.config.ts`
-- [ ] Añadir script de test en `package.json`
+- [x] Configurar `vitest.config.ts`
+- [x] Añadir script de test en `package.json`
 - [ ] Crear carpeta `__tests__/` en cada módulo
-- [ ] Configurar coverage con `@vitest/coverage-v8`
+- [x] Configurar coverage con `@vitest/coverage-v8`
 
 #### Tests de Física (`__tests__/physics.test.ts`)
-- [ ] Test: Trayectoria sin viento es parabólica
-- [ ] Test: Viento desvía proyectil lateralmente
-- [ ] Test: Proyectil impacta terreno
-- [ ] Test: Proyectil sale de límites (outOfBounds)
-- [ ] Test: `laserRange` devuelve distancia correcta
-- [ ] Test: `solveSpeedForRange` calcula velocidad IA
+- [x] Test: Trayectoria sin viento es parabólica
+- [x] Test: Viento desvía proyectil lateralmente
+- [x] Test: Proyectil impacta terreno
+- [x] Test: Proyectil sale de límites (outOfBounds)
+- [x] Test: `laserRange` devuelve distancia correcta
+- [x] Test: `solveSpeedForRange` calcula velocidad IA
 
 #### Tests de Terreno (`__tests__/terrain.test.ts`)
-- [ ] Test: `terrainHeight` es determinista
-- [ ] Test: `insideTerrain` detecta límites correctamente
-- [ ] Test: `scatterProps` genera misma disposición cada vez
+- [x] Test: `terrainHeight` es determinista
+- [x] Test: `insideTerrain` detecta límites correctamente
+- [x] Test: `scatterProps` genera misma disposición cada vez
 
 #### Tests de Motor (`__tests__/engine.test.ts`)
-- [ ] Test: Estado inicial es 'aiming'
-- [ ] Test: `adjustAim` respeta límites
-- [ ] Test: `fire` cambia fase a 'flying'
-- [ ] Test: `update` avanza física
-- [ ] Test: Resolución de impacto calcula daño
-- [ ] Test: IA dispara tras impacto del jugador
-- [ ] Test: Victoria cuando todos los objetivos destruidos
-- [ ] Test: Derrota cuando HP jugador llega a 0
-- [ ] Test: `reset` reinicia estado
+- [x] Test: Estado inicial es 'aiming'
+- [x] Test: `adjustAim` respeta límites
+- [x] Test: `fire` cambia fase a 'flying'
+- [x] Test: `update` avanza física
+- [x] Test: Resolución de impacto calcula daño
+- [x] Test: IA dispara tras impacto del jugador
+- [x] Test: Victoria cuando todos los objetivos destruidos
+- [x] Test: Derrota cuando HP jugador llega a 0
+- [x] Test: `reset` reinicia estado
 
 #### Tests de Integración
-- [ ] Test: Flujo completo de un turno
-- [ ] Test: Combate jugador vs IA hasta victoria
-- [ ] Test: Combate jugador vs IA hasta derrota
+- [x] Test: Flujo completo de un turno
+- [x] Test: Combate jugador vs IA hasta victoria
+- [x] Test: Combate jugador vs IA hasta derrota
 
 ---
 
@@ -54,7 +64,7 @@
 
 ### Refactorización de IA
 
-- [ ] Crear archivo `enemy-ai.ts`
+- [x] Crear archivo `enemy-ai.ts`
 - [ ] Definir interfaz `EnemyStrategy`:
   ```typescript
   interface EnemyStrategy {
@@ -62,9 +72,9 @@
   }
   ```
 - [ ] Implementar `BasicArtilleryStrategy` (comportamiento actual)
-- [ ] Mover lógica de `engine.ts` a `enemy-ai.ts`
-- [ ] Inyectar estrategia en constructor de GameEngine
-- [ ] Tests de estrategia aislados
+- [x] Mover lógica de `engine.ts` a `enemy-ai.ts`
+- [x] Inyectar estrategia en constructor de GameEngine
+- [x] Tests de estrategia aislados
 
 ### Configuración Centralizada
 
@@ -93,7 +103,7 @@
   - [ ] `fire()`
   - [ ] `reset()`
 - [ ] Añadir ejemplos de uso en JSDoc
-- [ ] Crear CHANGELOG.md inicial
+- [x] Crear CHANGELOG.md inicial
 
 ---
 
@@ -101,8 +111,8 @@
 
 ### Audio (Sprint 4)
 
-- [ ] Investigar Howler.js vs Web Audio API
-- [ ] Crear `audio-manager.ts` (capa dominio)
+- [x] Investigar Howler.js vs Web Audio API
+- [x] Crear `audio-manager.ts` (capa dominio)
 - [ ] Encontrar/generar sonidos:
   - [ ] Disparo de cañón
   - [ ] Explosión
