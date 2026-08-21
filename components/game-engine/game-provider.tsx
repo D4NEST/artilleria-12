@@ -2,27 +2,24 @@
 
 /**
  * ============================================================================
- *  PUENTE Vista <-> Modelo
+ *  PUENTE — React <-> Motor
  * ============================================================================
- *  Único punto donde React "toca" el motor. Expone:
- *    - useEngine()    -> instancia del motor (comandos + lectura imperativa)
- *    - useGameState() -> snapshot reactivo vía useSyncExternalStore
- *    - useViewMode()  -> estado propio de la VISTA (dónde mira la cámara)
- *
- *  Nótese que `viewMode` NO vive en el motor: mirar por el periscopio es una
- *  decisión de presentación, no de reglas de juego.
+ *  Único punto donde React "toca" el motor de juego. El motor vive aquí y se
+ *  expone a la Vista mediante un Context. La Vista NUNCA crea instancias del
+ *  motor directamente.
  * ============================================================================
  */
 
-import { createContext, useContext, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { useSyncExternalStore } from 'react'
 import { GameEngine } from './engine'
 import type { GameState } from './types'
 
-/** Estaciones del cuarto de guerra a las que puede acercarse la cámara. */
-export type ViewMode = 'room' | 'monitor' | 'periscope'
+export type ViewMode = 'room' | 'monitor' | 'periscope' | 'external'
 
 interface GameContextValue {
   engine: GameEngine
+  state: GameState
   viewMode: ViewMode
   setViewMode: (mode: ViewMode) => void
 }
@@ -30,39 +27,49 @@ interface GameContextValue {
 const GameContext = createContext<GameContextValue | null>(null)
 
 export function GameProvider({ children }: { children: React.ReactNode }) {
-  // Una sola instancia por montaje. El motor sobrevive a los re-renders.
+  // Instancia única del motor. Se crea UNA vez al montar el componente.
   const engine = useMemo(() => new GameEngine(), [])
   const [viewMode, setViewMode] = useState<ViewMode>('room')
 
-  // El motor nace con una semilla FIJA para que el HTML del servidor y el
-  // primer render del cliente sean byte a byte iguales (si no, el viento
-  // aleatorio provoca el clásico "Hydration failed"). Ya montados en el
-  // navegador, se resiembra: cada partida real es distinta.
+  // La semilla se cambia en el cliente para evitar mismatch de hidratación.
   useEffect(() => {
-    engine.reseed(Date.now())
+    // Si la semilla no se ha cambiado, usa una aleatoria (solo en cliente).
+    if (engine.getSeed() === 0) {
+      engine.reseed(Math.floor(Math.random() * 1000000))
+    }
   }, [engine])
 
-  const value = useMemo(() => ({ engine, viewMode, setViewMode }), [engine, viewMode])
+  // Suscripción reactiva al motor. El motor notifica cuando hay cambios en
+  // el snapshot (turno, impacto, etc.) pero NO cuando cambia la posición
+  // del proyectil (eso se lee imperativamente).
+  const state = useSyncExternalStore(
+    engine.subscribe,
+    engine.getSnapshot,
+    engine.getSnapshot, // SSR: usar el mismo estado inicial
+  )
+
+  const value = useMemo(
+    () => ({ engine, state, viewMode, setViewMode }),
+    [engine, state, viewMode],
+  )
+
   return <GameContext.Provider value={value}>{children}</GameContext.Provider>
 }
 
-function useGameContext() {
+export function useEngine() {
   const ctx = useContext(GameContext)
-  if (!ctx) throw new Error('useGameContext debe usarse dentro de <GameProvider>')
-  return ctx
+  if (!ctx) throw new Error('useEngine must be used within GameProvider')
+  return ctx.engine
 }
 
-export function useEngine(): GameEngine {
-  return useGameContext().engine
+export function useGameState() {
+  const ctx = useContext(GameContext)
+  if (!ctx) throw new Error('useGameState must be used within GameProvider')
+  return ctx.state
 }
 
 export function useViewMode() {
-  const { viewMode, setViewMode } = useGameContext()
-  return { viewMode, setViewMode }
-}
-
-/** Snapshot reactivo del estado del juego. */
-export function useGameState(): GameState {
-  const engine = useEngine()
-  return useSyncExternalStore(engine.subscribe, engine.getSnapshot, engine.getSnapshot)
+  const ctx = useContext(GameContext)
+  if (!ctx) throw new Error('useViewMode must be used within GameProvider')
+  return { viewMode: ctx.viewMode, setViewMode: ctx.setViewMode }
 }
